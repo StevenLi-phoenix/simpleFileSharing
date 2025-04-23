@@ -95,11 +95,13 @@ async def download(fid: str):
 @app.delete("/delete/{fid}")
 async def delete(fid: str):
     global mapping
+    if fid not in mapping or not exists(join(RESOURCES, fid)):
+        return JSONResponse(status_code=404, content={"message": "File not found", "fid": fid})
     try:
         remove(join(RESOURCES, fid))
         del mapping[fid]
         save_mapping()
-        return {"message": "File deleted successfully", "fid": fid}
+        return JSONResponse(content={"message": "File deleted successfully", "fid": fid})
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e), "fid": fid})
 
