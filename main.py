@@ -84,7 +84,7 @@ async def upload(file: UploadFile = File(...)):
         f.write(await file.read())
     mapping[fid] = file.filename
     save_mapping()
-    return {"filename": file.filename}
+    return JSONResponse(content={"filename": file.filename})
 
 @app.get("/download/{fid}")
 async def download(fid: str):
