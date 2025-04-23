@@ -1,6 +1,6 @@
 from uuid import uuid4
 from sys import argv
-from os import path
+from os import path, getcwd, makedirs
 import shutil
 from json import load, dump
 
@@ -12,10 +12,12 @@ else:
     fp = argv[1]
 fid = str(uuid4())
 fn = path.basename(fp)
-shutil.copy(fp, path.join(path.dirname(fp), "resources", f"{fid}"))
-with open(path.join(path.dirname(fp), "mapping.json"), "r") as f:
+cwd = getcwd()
+makedirs(path.join(cwd, "resources"), exist_ok=True)
+shutil.copy(fp, path.join(cwd, "resources", fid))
+with open(path.join(cwd, "mapping.json"), "r") as f:
     mapping = load(f)
-mapping[fn] = fid
-with open(path.join(path.dirname(argv[1]), "mapping.json"), "w") as f:
+mapping[fid] = fn
+with open(path.join(cwd, "mapping.json"), "w") as f:
     dump(mapping, f)
 print(f"File {fid} added successfully")
