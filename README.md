@@ -9,7 +9,7 @@ This is a simple file sharing application built using FastAPI. It allows users t
  - Partial downloads via HTTP Range
  - Resumable uploads via Content-Range
 
-## Setup
+## Setup (dev)
 
 1. **Clone the repository**
    ```bash
