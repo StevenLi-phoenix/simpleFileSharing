@@ -4,6 +4,8 @@ from fastapi import FastAPI, File, UploadFile, Request, Body
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
 from pathlib import Path
 from json import load, dump
+from typing import Optional
+from argparse import ArgumentParser
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from html import escape
@@ -17,19 +19,24 @@ logger = getLogger(__name__)
 mapping = {}
 flock = Lock()
 def load_mapping():
+    # Return a fresh mapping from disk, without touching the global.
     if exists(join('mapping.json')):
-        with open(join('mapping.json'), 'r') as f:
-            mapping = load(f)
-    return mapping
+        try:
+            with open(join('mapping.json'), 'r') as f:
+                return load(f)
+        except Exception:
+            logger.warning('Failed to load mapping.json, starting with empty mapping')
+            return {}
+    return {}
 
 def clean_mapping():
     global mapping
     for orphan in set(listdir(RESOURCES)) - set(mapping):
         try:
             remove(join(RESOURCES, orphan))
-        except:
-            logger.warn(f'Failed to delete {orphan} while {orphan} did not exist')
-    for fid in mapping:
+        except Exception:
+            logger.warning(f'Failed to delete {orphan} while {orphan} did not exist')
+    for fid in list(mapping.keys()):
         if not exists(join(RESOURCES, fid)):
             del mapping[fid]
 
@@ -51,14 +58,24 @@ app = FastAPI(lifespan=lifespan)
 RESOURCES = Path('resources')
 makedirs(RESOURCES, exist_ok=True)
 
+# Optional limit; configured via CLI in __main__
+MAX_FILE_SIZE_BYTES: Optional[int] = None
+
 
 @app.get("/")
 async def root():
     def create_link(fid):
-        return f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;"><div style="flex:1;"><a href="/download/{fid}" style="word-break: break-all;">{escape(mapping[fid])}</a></div><button onclick="fetch(\'/delete/{fid}\', {{method:\'DELETE\'}}).then(()=>location.reload())" style="background-color:red;color:white;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;margin-left:10px;">Delete</button></div>'
+        name = escape(mapping[fid])
+        return (
+            '<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">'
+            '<div style="flex:1;"><a href="/download/%s" style="word-break: break-all;">%s</a></div>'
+            '<button onclick="fetch(`/delete/%s`, {method:\'DELETE\'}).then(()=>location.reload())" '
+            'style="background-color:red;color:white;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;margin-left:10px;">Delete</button>'
+            '</div>'
+        ) % (fid, name, fid)
     fids = [fid for fid in listdir(RESOURCES) if fid in mapping]
     links_html = '<br>\n'.join(create_link(fid) for fid in fids)
-    return HTMLResponse(content=f"""
+    content = """
     <html>
         <head>
             <title>File</title>
@@ -70,19 +87,63 @@ async def root():
                 <h1>Files</h1><br>
                 {links_html}
             </div>
-            <div>
-                <input type="file" onchange="let d=new FormData();d.append('file',this.files[0]);fetch('/upload',{{method:'POST',body:d}}).then(()=>location.reload())">
+            <div style="margin-top: 2rem;">
+                <h2>Upload</h2>
+                <input id="fileInput" type="file">
+                <button id="uploadBtn">Upload</button>
+                <div style="margin-top: 10px;">
+                    <progress id="uploadProgress" value="0" max="100" style="width: 300px;"></progress>
+                    <span id="uploadPct">0%</span>
+                </div>
             </div>
+
+            <script>
+            const fileInput = document.getElementById('fileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const progressEl = document.getElementById('uploadProgress');
+            const pctEl = document.getElementById('uploadPct');
+
+            uploadBtn.addEventListener('click', () => {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) { alert('Please choose a file'); return; }
+                const fd = new FormData();
+                fd.append('file', file);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload');
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        progressEl.value = pct;
+                        pctEl.textContent = pct + '%';
+                    }
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        progressEl.value = 100; pctEl.textContent = '100%';
+                        setTimeout(() => location.reload(), 300);
+                    } else {
+                        alert('Upload failed: ' + xhr.status + ' ' + xhr.responseText);
+                    }
+                };
+                xhr.onerror = () => { alert('Network error during upload'); };
+                xhr.send(fd);
+            });
+            </script>
         </body>
     </html>
-    """)
+    """
+    return HTMLResponse(content=content.replace("{links_html}", links_html))
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     global mapping
     fid = str(uuid4())
+    data = await file.read()
+    if MAX_FILE_SIZE_BYTES is not None and len(data) > MAX_FILE_SIZE_BYTES:
+        return JSONResponse(status_code=413, content={"message": "File too large"})
     with open(join(RESOURCES, fid), "wb") as f:
-        f.write(await file.read())
+        f.write(data)
     mapping[fid] = file.filename
     save_mapping()
     return JSONResponse(content={"filename": file.filename})
@@ -208,6 +269,13 @@ async def upload_range(fid: str, request: Request, body: bytes = Body(...)):
     if expected_len != len(body):
         return JSONResponse(status_code=400, content={"message": "Body length does not match range"})
 
+    # Enforce max file size when configured
+    if MAX_FILE_SIZE_BYTES is not None:
+        if total is not None and total > MAX_FILE_SIZE_BYTES:
+            return JSONResponse(status_code=413, content={"message": "File too large"})
+        if total is None and end + 1 > MAX_FILE_SIZE_BYTES:
+            return JSONResponse(status_code=413, content={"message": "File too large"})
+
     try:
         with open(fp, "r+b") as f:
             f.seek(start)
@@ -223,4 +291,29 @@ async def upload_range(fid: str, request: Request, body: bytes = Body(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    parser = ArgumentParser(description="Simple File Sharing Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    parser.add_argument(
+        "--max-file-size",
+        dest="max_file_size",
+        default=None,
+        help="Maximum file size (e.g. 100M, 2G). Omit for unlimited.",
+    )
+    args = parser.parse_args()
+
+    def parse_size(s: Optional[str]) -> Optional[int]:
+        if not s:
+            return None
+        units = {"k": 1024, "m": 1024**2, "g": 1024**3}
+        ls = s.strip().lower()
+        try:
+            if ls[-1] in units:
+                return int(float(ls[:-1]) * units[ls[-1]])
+            return int(ls)
+        except Exception:
+            logger.warning("Invalid --max-file-size value; ignoring")
+            return None
+
+    MAX_FILE_SIZE_BYTES = parse_size(args.max_file_size)
+    uvicorn.run(app, host=args.host, port=args.port)
