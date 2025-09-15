@@ -1,0 +1,59 @@
+name: Release Linux Binary
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-binary:
+    name: Build Ubuntu one-file binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build binary with PyInstaller
+        run: |
+          pyinstaller --onefile \
+            --name simple-file-sharing \
+            --collect-all fastapi \
+            --collect-all starlette \
+            --collect-all anyio \
+            --collect-all pydantic \
+            --collect-all uvicorn \
+            main.py
+          ls -la dist
+          mv dist/simple-file-sharing dist/simple-file-sharing-linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: simple-file-sharing-linux-x64
+          path: dist/simple-file-sharing-linux-x64
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/simple-file-sharing-linux-x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
