@@ -41,6 +41,7 @@ This is a simple file sharing application built using FastAPI. It allows users t
   https://github.com/StevenLi-phoenix/simpleFileSharing/releases/latest/download/simple-file-sharing-linux-x64
 - Make it executable and run:
   ```bash
+  curl -L -o simple-file-sharing-linux-x64 "https://github.com/StevenLi-phoenix/simpleFileSharing/releases/latest/download/simple-file-sharing-linux-x64"
   chmod +x simple-file-sharing-linux-x64
   ./simple-file-sharing-linux-x64 --host 0.0.0.0 --port 8000 --max-file-size 2G
   ```
