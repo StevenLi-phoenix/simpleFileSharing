@@ -9,8 +9,12 @@ This is a simple file sharing application built using FastAPI. It allows users t
  - Partial downloads via HTTP Range
  - Resumable uploads via Content-Range
 
+# Run
+- [[Python](https://github.com/StevenLi-phoenix/simpleFileSharing/tree/main#setup-dev)]
+- [[Binary](https://github.com/StevenLi-phoenix/simpleFileSharing/tree/main#binary-releases)]
+  
 ## Setup (dev)
-
+- python runtime is required on machine
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
