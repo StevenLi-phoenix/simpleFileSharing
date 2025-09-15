@@ -28,12 +28,46 @@ This is a simple file sharing application built using FastAPI. It allows users t
    pip install -r requirements.txt
    ```
 
-4. **Run the application**
+4. **Run the application (dev)**
    ```bash
    uvicorn main:app --reload
    ```
 
    The application will be available at `http://127.0.0.1:8000`.
+
+## Binary Releases
+- Download the Ubuntu standalone binary from the GitHub Releases page: `simple-file-sharing-linux-x64`.
+- Direct link to the latest binary:
+  https://github.com/StevenLi-phoenix/simpleFileSharing/releases/latest/download/simple-file-sharing-linux-x64
+- Make it executable and run:
+  ```bash
+  chmod +x simple-file-sharing-linux-x64
+  ./simple-file-sharing-linux-x64 --host 0.0.0.0 --port 8000 --max-file-size 2G
+  ```
+- No Python runtime is required on the target machine.
+
+## CLI Usage
+You can run via the binary or directly with Python.
+
+- Binary or Python script:
+  ```bash
+  ./simple-file-sharing-linux-x64 --host 0.0.0.0 --port 9000 --max-file-size 500M
+  # or
+  python main.py --host 0.0.0.0 --port 9000 --max-file-size 500M
+  ```
+- Flags:
+  - `--host` (default `127.0.0.1`): bind address
+  - `--port` (default `8000`): bind port
+  - `--max-file-size` (optional): max upload size, supports `K/M/G` suffixes
+
+## Build Binary (local)
+```bash
+pip install -r requirements.txt && pip install pyinstaller
+pyinstaller --onefile \
+  --hidden-import multipart \
+  --hidden-import multipart.multipart \
+  --name simple-file-sharing main.py
+```
 
 ## Endpoints
 
@@ -58,6 +92,10 @@ This is a simple file sharing application built using FastAPI. It allows users t
    2) `curl -X PUT --data-binary @chunk1.bin -H "Content-Range: bytes 0-1048575/8388608" http://127.0.0.1:8000/upload/<fid>`.
    3) Continue with subsequent chunks until complete (update start-end accordingly).
  - Git: `mapping.json` and `resources/` are ignored; `mapping.json` is untracked.
+
+## Security Warning
+- Not security-hardened: no auth, no TLS, no rate limiting. Do not expose directly to the public internet. Run behind a trusted network or reverse proxy with access controls.
+- No integrity verification: uploads are not checksum-validated. If integrity matters, send a client-side hash (e.g., SHA-256) and verify server-side before accepting.
 
 ## Examples
 - Partial download first KB:
