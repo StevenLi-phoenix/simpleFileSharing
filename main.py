@@ -57,6 +57,7 @@ async def root():
     def create_link(fid):
         return f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;"><div style="flex:1;"><a href="/download/{fid}" style="word-break: break-all;">{escape(mapping[fid])}</a></div><button onclick="fetch(\'/delete/{fid}\', {{method:\'DELETE\'}}).then(()=>location.reload())" style="background-color:red;color:white;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;margin-left:10px;">Delete</button></div>'
     fids = [fid for fid in listdir(RESOURCES) if fid in mapping]
+    links_html = '<br>\n'.join(create_link(fid) for fid in fids)
     return HTMLResponse(content=f"""
     <html>
         <head>
@@ -67,7 +68,7 @@ async def root():
         <body>
             <div>
                 <h1>Files</h1><br>
-                {'<br>\n'.join(create_link(fid) for fid in fids)}
+                {links_html}
             </div>
             <div>
                 <input type="file" onchange="let d=new FormData();d.append('file',this.files[0]);fetch('/upload',{{method:'POST',body:d}}).then(()=>location.reload())">
