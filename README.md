@@ -91,7 +91,6 @@ pyinstaller --onefile \
    1) `curl -s "http://127.0.0.1:8000/upload_init?filename=big.bin"` -> returns `{ "fid": "..." }`.
    2) `curl -X PUT --data-binary @chunk1.bin -H "Content-Range: bytes 0-1048575/8388608" http://127.0.0.1:8000/upload/<fid>`.
    3) Continue with subsequent chunks until complete (update start-end accordingly).
- - Git: `mapping.json` and `resources/` are ignored; `mapping.json` is untracked.
 
 ## Security Warning
 - Not security-hardened: no auth, no TLS, no rate limiting. Do not expose directly to the public internet. Run behind a trusted network or reverse proxy with access controls.
