@@ -33,6 +33,8 @@ jobs:
         run: |
           pyinstaller --onefile \
             --name simple-file-sharing \
+            --hidden-import multipart \
+            --hidden-import multipart.multipart \
             --collect-all fastapi \
             --collect-all starlette \
             --collect-all anyio \
@@ -56,4 +58,3 @@ jobs:
             dist/simple-file-sharing-linux-x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
