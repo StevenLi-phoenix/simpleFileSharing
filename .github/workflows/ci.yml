@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-cpp:
+    name: Build and smoke-test C++ server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl
+
+      - name: Vendor httplib single header
+        run: |
+          mkdir -p third_party
+          curl -fsSL https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -o third_party/httplib.h
+
+      - name: Build C++ server
+        run: |
+          make clean
+          make -j2
+          file bin/server
+
+      - name: Start server and probe endpoints
+        run: |
+          PORT=8765 ./bin/server &
+          SVR_PID=$!
+          echo "Server PID: $SVR_PID"
+          # wait for server to bind
+          for i in $(seq 1 20); do
+            sleep 0.25
+            curl -fsS http://127.0.0.1:8765/ >/dev/null && break || true
+          done
+          echo "GET /" && curl -fsS http://127.0.0.1:8765/ | head -n1
+          echo "Upload raw body" && echo "hi" > /tmp/hi.txt
+          UP=$(curl -fsS --data-binary @/tmp/hi.txt 'http://127.0.0.1:8765/upload?filename=hi.txt')
+          echo "$UP"
+          echo "Upload multipart" && echo "hi2" > /tmp/hi2.txt
+          UP2=$(curl -fsS -F file=@/tmp/hi2.txt 'http://127.0.0.1:8765/upload')
+          echo "$UP2"
+          echo "$UP"
+          FID=$(echo "$UP" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          echo "GET /download/$FID" && curl -fsS -OJ http://127.0.0.1:8765/download/$FID >/dev/null
+          echo "DELETE /delete/$FID" && curl -fsS -X DELETE http://127.0.0.1:8765/delete/$FID
+          kill $SVR_PID || true

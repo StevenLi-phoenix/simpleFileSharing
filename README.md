@@ -78,6 +78,83 @@ pyinstaller --onefile \
 - **GET /download/{fid}**: Download a file by its ID (supports HTTP Range for partial content).
 - **DELETE /delete/{fid}**: Delete a file by its ID.
 
+## C++ Server (experimental)
+An initial C++ rewrite is scaffolded alongside the Python app. It reuses the same `resources/` and `mapping.json` and aims to keep the same API shape for core endpoints.
+
+Prerequisites
+- A C++20 compiler (`clang++` or `g++`) and `make`.
+
+Build
+- Build server:
+  ```bash
+  make
+  ```
+- Makefile targets:
+  - `make` or `make all`: build the server
+  - `make server`: build only the server
+  - `make run`: run the server binary
+  - `make clean`: remove `bin/`
+
+Enable HTTP endpoints
+- The server uses the single-header `cpp-httplib` library for HTTP. Without it, the binary will start and print a short instruction message instead of serving HTTP.
+- To enable HTTP, download `httplib.h` and place it at `third_party/httplib.h`:
+  - Project: https://github.com/yhirose/cpp-httplib
+  - Then rebuild and run:
+    ```bash
+    make server && ./bin/server
+    ```
+  - Quick vendor (example):
+    ```bash
+    curl -L https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -o third_party/httplib.h
+    make server && ./bin/server
+    ```
+
+Run
+- Default (serves on `127.0.0.1:8000`):
+  ```bash
+  ./bin/server
+  ```
+- Configure via environment variables:
+  - `PORT` (default `8000`)
+  - `RESOURCES_DIR` (default `resources`)
+  - `MAPPING_PATH` (default `mapping.json`)
+  - `MAX_FILE_SIZE` in bytes (default `0` = no limit)
+  Example:
+  ```bash
+  PORT=9000 RESOURCES_DIR=./resources MAPPING_PATH=./mapping.json ./bin/server
+  ```
+
+Troubleshooting
+- Requires a C++20-capable compiler. Check with `clang++ --version` or `g++ --version`.
+- If the server prints: "Server built without HTTP library.", ensure `third_party/httplib.h` exists and rebuild.
+
+CLI importer
+- Removed. Use HTTP endpoints instead.
+
+API parity and limitations
+- Implemented: `GET /`, `POST /upload`, `GET /download/{fid}`, `DELETE /delete/{fid}`.
+- Not yet implemented in C++: resumable uploads and ranged downloads (Python app supports these).
+- Current download implementation reads the whole file into memory; for very large files, consider the Python server or extend the C++ server to stream.
+
+Behavior notes
+- Reuses existing `resources/` and `mapping.json`; changes persist immediately via atomic temp+rename writes.
+- IDs are base62 and validated (`[A-Za-z0-9]{6,64}`).
+- Filenames are lightly sanitized for headers.
+
+Quick checks (C++)
+- Upload via curl (multipart):
+  ```bash
+  curl -F file=@/path/to/file http://127.0.0.1:8000/upload
+  ```
+- Or raw body + filename param:
+  ```bash
+  curl --data-binary @/path/to/file 'http://127.0.0.1:8000/upload?filename=yourfile.ext'
+  ```
+- Download:
+  ```bash
+  curl -OJ http://127.0.0.1:8000/download/<fid>
+  ```
+
 ## File Structure
 - `main.py`: The main application file.
 - `resources/`: Directory where uploaded files are stored.
