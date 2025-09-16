@@ -103,31 +103,51 @@ async def root():
             const progressEl = document.getElementById('uploadProgress');
             const pctEl = document.getElementById('uploadPct');
 
-            uploadBtn.addEventListener('click', () => {
+            uploadBtn.addEventListener('click', async () => {
                 const file = fileInput.files && fileInput.files[0];
                 if (!file) { alert('Please choose a file'); return; }
-                const fd = new FormData();
-                fd.append('file', file);
+                uploadBtn.disabled = true;
+                try {
+                    // 1) init upload to obtain fid
+                    const initResp = await fetch('/upload_init?filename=' + encodeURIComponent(file.name), { method: 'POST' });
+                    if (!initResp.ok) {
+                        const t = await initResp.text();
+                        throw new Error('Init failed: ' + initResp.status + ' ' + t);
+                    }
+                    const initJson = await initResp.json();
+                    const fid = initJson.fid;
+                    if (!fid) throw new Error('No fid returned from server');
 
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/upload');
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable) {
-                        const pct = Math.round((e.loaded / e.total) * 100);
-                        progressEl.value = pct;
-                        pctEl.textContent = pct + '%';
+                    // 2) upload in chunks via PUT with Content-Range
+                    const chunkSize = 2 * 1024 * 1024; // 2MB
+                    let start = 0;
+                    while (start < file.size) {
+                        const end = Math.min(start + chunkSize, file.size) - 1;
+                        const blob = file.slice(start, end + 1);
+                        const resp = await fetch('/upload/' + fid, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Range': `bytes ${start}-${end}/${file.size}`,
+                                'Content-Type': 'application/octet-stream',
+                            },
+                            body: blob,
+                        });
+                        if (!resp.ok) {
+                            const t = await resp.text();
+                            throw new Error('Chunk failed: ' + resp.status + ' ' + t);
+                        }
+                        const uploaded = end + 1;
+                        const pct = Math.round((uploaded / file.size) * 100);
+                        progressEl.value = pct; pctEl.textContent = pct + '%';
+                        start = end + 1;
                     }
-                };
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        progressEl.value = 100; pctEl.textContent = '100%';
-                        setTimeout(() => location.reload(), 300);
-                    } else {
-                        alert('Upload failed: ' + xhr.status + ' ' + xhr.responseText);
-                    }
-                };
-                xhr.onerror = () => { alert('Network error during upload'); };
-                xhr.send(fd);
+                    progressEl.value = 100; pctEl.textContent = '100%';
+                    setTimeout(() => location.reload(), 300);
+                } catch (e) {
+                    alert(String(e));
+                } finally {
+                    uploadBtn.disabled = false;
+                }
             });
             </script>
         </body>
@@ -137,16 +157,32 @@ async def root():
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
+    """Legacy multipart upload. Now streams to disk to avoid OOM."""
     global mapping
     fid = str(uuid4())
-    data = await file.read()
-    if MAX_FILE_SIZE_BYTES is not None and len(data) > MAX_FILE_SIZE_BYTES:
-        return JSONResponse(status_code=413, content={"message": "File too large"})
-    with open(join(RESOURCES, fid), "wb") as f:
-        f.write(data)
+    written = 0
+    try:
+        with open(join(RESOURCES, fid), "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if MAX_FILE_SIZE_BYTES is not None and written > MAX_FILE_SIZE_BYTES:
+                    # Cleanup partial file and reject
+                    f.flush()
+                    f.close()
+                    try:
+                        remove(join(RESOURCES, fid))
+                    except Exception:
+                        pass
+                    return JSONResponse(status_code=413, content={"message": "File too large"})
+                f.write(chunk)
+    finally:
+        await file.close()
     mapping[fid] = file.filename
     save_mapping()
-    return JSONResponse(content={"filename": file.filename})
+    return JSONResponse(content={"filename": file.filename, "fid": fid})
 
 def _parse_range(range_header: str, file_size: int):
     try:
@@ -239,7 +275,7 @@ async def upload_init(filename: str):
 
 
 @app.put("/upload/{fid}")
-async def upload_range(fid: str, request: Request, body: bytes = Body(...)):
+async def upload_range(fid: str, request: Request):
     """Upload a byte range with Content-Range header (PUT raw bytes)."""
     if fid not in mapping:
         return JSONResponse(status_code=404, content={"message": "Unknown fid", "fid": fid})
@@ -251,12 +287,19 @@ async def upload_range(fid: str, request: Request, body: bytes = Body(...)):
     cr = request.headers.get("Content-Range")
     if not cr:
         return JSONResponse(status_code=400, content={"message": "Missing Content-Range header"})
+    # Accept both "bytes start-end/total" and legacy "bytes=start-end/total"
+    s = cr.strip()
+    if s.lower().startswith("bytes="):
+        rng = s.split("=", 1)[1].strip()
+    elif s.lower().startswith("bytes "):
+        rng = s.split(" ", 1)[1].strip()
+    else:
+        return JSONResponse(status_code=400, content={"message": "Invalid Content-Range format"})
     try:
-        unit, rng = cr.split("=", 1)
-        if unit.strip().lower() != "bytes":
-            raise ValueError
-        range_part, total_part = rng.split("/")
-        start_s, end_s = range_part.split("-")
+        range_part, total_part = rng.split("/", 1)
+        if range_part == "*":
+            return JSONResponse(status_code=400, content={"message": "Wildcard range not supported"})
+        start_s, end_s = range_part.split("-", 1)
         start = int(start_s)
         end = int(end_s)
         total = int(total_part) if total_part != "*" else None
@@ -266,6 +309,9 @@ async def upload_range(fid: str, request: Request, body: bytes = Body(...)):
     if start < 0 or end < start:
         return JSONResponse(status_code=400, content={"message": "Invalid byte positions"})
     expected_len = end - start + 1
+
+    # Read raw body bytes explicitly to avoid parser issues
+    body = await request.body()
     if expected_len != len(body):
         return JSONResponse(status_code=400, content={"message": "Body length does not match range"})
 

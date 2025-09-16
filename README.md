@@ -77,7 +77,7 @@ pyinstaller --onefile \
 ## Endpoints
 
 - **GET /**: Returns the HTML page listing all files with options to upload or delete.
-- **POST /upload**: Upload a new file.
+- **POST /upload**: Legacy multipart upload (not used by UI; streams to disk).
 - **POST /upload_init?filename=NAME**: Initialize a resumable upload, returns `fid`.
 - **PUT /upload/{fid}**: Ranged upload with raw body and `Content-Range` header.
 - **GET /download/{fid}**: Download a file by its ID (supports HTTP Range for partial content).
@@ -93,7 +93,7 @@ pyinstaller --onefile \
 - The application uses a simple in-memory mapping for file management, which is saved to `mapping.json` on exit.
 - Range download: send header like `Range: bytes=0-1023`.
 - Range upload example:
-   1) `curl -s "http://127.0.0.1:8000/upload_init?filename=big.bin"` -> returns `{ "fid": "..." }`.
+   1) `curl -s -X POST "http://127.0.0.1:8000/upload_init?filename=big.bin"` -> returns `{ "fid": "..." }`.
    2) `curl -X PUT --data-binary @chunk1.bin -H "Content-Range: bytes 0-1048575/8388608" http://127.0.0.1:8000/upload/<fid>`.
    3) Continue with subsequent chunks until complete (update start-end accordingly).
 
@@ -106,7 +106,7 @@ pyinstaller --onefile \
   ```bash
   curl -H "Range: bytes=0-1023" -OJ http://127.0.0.1:8000/download/<fid>
   ```
-- Basic upload via form (non-resumable):
+- Legacy multipart upload (not recommended for huge files):
   ```bash
   curl -F file=@/path/to/file http://127.0.0.1:8000/upload
   ```
