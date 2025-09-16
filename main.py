@@ -119,7 +119,7 @@ async def root():
                     if (!fid) throw new Error('No fid returned from server');
 
                     // 2) upload in chunks via PUT with Content-Range
-                    const chunkSize = 2 * 1024 * 1024; // 2MB
+                    const chunkSize = 4 * 1024 * 1024; // 4MB
                     let start = 0;
                     while (start < file.size) {
                         const end = Math.min(start + chunkSize, file.size) - 1;
